@@ -14,5 +14,9 @@ bool loadOneShotSchedule(uint8_t channel,
                          RelayContract::OneShotScheduleConfig& output);
 bool saveOneShotSchedule(
     uint8_t channel, const RelayContract::OneShotScheduleConfig& config);
+bool loadIntervalSchedule(uint8_t channel,
+                          RelayContract::IntervalScheduleConfig& output);
+bool saveIntervalSchedule(
+    uint8_t channel, const RelayContract::IntervalScheduleConfig& config);
 
 }  // namespace AutomationStorage
