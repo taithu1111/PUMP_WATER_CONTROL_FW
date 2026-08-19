@@ -93,7 +93,7 @@ bool publishScheduleState() {
   if (!readAutomation(snapshot)) return false;
   return publishPayload(
       topics.scheduleState,
-      MqttProtocol::encodeOneShotScheduleStates(
+      MqttProtocol::encodeIntervalScheduleStates(
           snapshot, snapshot.currentEpoch, publishBuffer,
           sizeof(publishBuffer)));
 }
@@ -129,7 +129,7 @@ void dispatchCommand(const RawMessage& message) {
     valid = MqttProtocol::decodeTimeoutCommand(message.payload,
                                                message.payloadLength, command);
   } else if (strcmp(message.topic, topics.scheduleSet) == 0) {
-    valid = MqttProtocol::decodeOneShotScheduleCommand(
+    valid = MqttProtocol::decodeIntervalScheduleCommand(
         message.payload, message.payloadLength, command);
   }
   RelayContract::CommandResult result =
