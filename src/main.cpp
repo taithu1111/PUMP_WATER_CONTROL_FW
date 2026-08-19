@@ -1,5 +1,6 @@
 #include <Arduino.h>
 
+#include "core/operating_mode.h"
 #include "feature/activation/ble_activation.h"
 #include "feature/automation/relay_automation.h"
 #include "feature/mqtt/mqtt_relay_gateway.h"
@@ -14,11 +15,18 @@ bool startMqtt(const char* ssid, const char* password) {
       RelayAutomation::getSnapshot, RelayFeature::getAll);
 }
 
+void onOperatingModeChanged(OperatingMode::Mode mode) {
+  LOG_PRINTF("[main] Operating mode selected: %s\n",
+             mode == OperatingMode::Mode::Online ? "ONLINE" : "OFFLINE");
+}
+
 }  // namespace
 
 void setup() {
   Serial.begin(115200);
   LOG_PRINTLN("[main] Starting pump controller");
+
+  OperatingMode::begin(onOperatingModeChanged);
 
   if (!RelayFeature::begin()) {
     LOG_PRINTLN("[main] Relay initialization failed; network will not start");
@@ -45,6 +53,7 @@ void setup() {
 }
 
 void loop() {
+  OperatingMode::loop();
   RelayAutomation::loop();
   MqttRelayGateway::loop();
   BleActivation::loop();
