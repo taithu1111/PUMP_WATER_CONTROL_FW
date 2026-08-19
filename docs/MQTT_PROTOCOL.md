@@ -1,53 +1,19 @@
 # MQTT protocol
 
-## Device identity
+## Định danh thiết bị
 
-Mỗi ESP32 có một `deviceId`. Giá trị mặc định dự kiến cho thiết bị đầu tiên:
-
-```text
-pump-controller-01
-```
-
-Topic gốc:
+Thiết bị hiện dùng:
 
 ```text
-pump/{deviceId}
+deviceId: pump-controller-01
+topic gốc: pump/pump-controller-01
 ```
 
-## Command topics
+Firmware kết nối `mqtt.agribeacon.tech:8883` bằng MQTT over TLS. Web app dùng
+MQTT over secure WebSocket tại `wss://mqtt.agribeacon.tech/mqtt` và dùng chung
+topic/payload trong tài liệu này.
 
-### Điều khiển một relay
-
-```text
-Topic: pump/{deviceId}/relay/set
-Payload: {"channel":1,"state":true}
-```
-
-- `channel`: số nguyên từ 1 đến 4.
-- `state`: boolean; `true` là bật và `false` là tắt.
-- Payload thiếu trường, sai kiểu hoặc sai phạm vi không được thực thi.
-
-### Yêu cầu trạng thái
-
-```text
-Topic: pump/{deviceId}/relay/get
-Payload: {}
-```
-
-## State topics
-
-### Trạng thái bốn relay
-
-```text
-Topic: pump/{deviceId}/relay/state
-Payload: {"relays":[true,false,false,true]}
-Retain: true
-```
-
-Firmware chỉ publish snapshot mới sau khi thao tác ghi PCF8575 thành công. App dùng
-snapshot này làm nguồn trạng thái chính thức, không tự xác nhận từ thao tác nhấn nút.
-
-### Trạng thái kết nối
+## Trạng thái kết nối
 
 ```text
 Topic: pump/{deviceId}/status
@@ -55,36 +21,52 @@ Payload: online | offline
 Retain: true
 ```
 
-Khi kết nối MQTT, firmware publish `online`. MQTT Last Will publish `offline` nếu
-ESP32 mất kết nối bất thường.
+Firmware publish `online` sau khi subscribe thành công. MQTT Last Will publish
+`offline` nếu thiết bị mất kết nối bất thường.
 
-## Startup behavior
-
-Firmware tắt cả bốn relay trước khi bắt đầu kết nối mạng. Phiên bản đầu không tự
-khôi phục trạng thái relay sau khi mất điện.
-
-## Web app transport
-
-Web app kết nối cùng broker bằng MQTT over secure WebSocket:
+## Điều khiển relay trực tiếp
 
 ```text
-wss://mqtt.agribeacon.tech/mqtt
+Topic: pump/{deviceId}/relay/set
+Payload: {"channel":1,"state":true}
 ```
 
-Firmware dùng MQTT over TLS tại `mqtt.agribeacon.tech:8883`. Hai transport dùng
-chung topic và payload được định nghĩa trong tài liệu này.
+- `channel`: số nguyên từ 1 đến 4.
+- `state`: `true` để bật, `false` để tắt.
+- Lệnh trực tiếp hủy timeout đang hoạt động của đúng relay, nhưng không xóa
+  schedule.
+
+Yêu cầu snapshot:
+
+```text
+Topic: pump/{deviceId}/relay/get
+Payload: {}
+```
+
+Snapshot retained:
+
+```text
+Topic: pump/{deviceId}/relay/state
+Payload: {"relays":[true,false,false,true]}
+Retain: true
+```
+
+App phải dùng snapshot này làm trạng thái chính thức, không tự xác nhận trạng
+thái chỉ từ thao tác nhấn nút.
 
 ## Timeout theo relay
 
-Tạo hoặc thay thế timeout của một relay:
+Tạo hoặc thay thế timeout:
 
 ```text
 Topic: pump/{deviceId}/relay/timeout/set
 Payload: {"channel":1,"state":true,"durationSec":1800,"onExpire":false}
 ```
 
-ESP lưu thời điểm hết hạn tuyệt đối vào NVS, chuyển relay sang `state` ngay và
-chuyển sang `onExpire` khi hết hạn. `durationSec` hợp lệ từ 1 giây đến 30 ngày.
+- `durationSec`: từ 1 giây đến 30 ngày.
+- Relay chuyển sang `state` ngay khi lệnh thành công.
+- Firmware lưu epoch hết hạn vào NVS.
+- Khi hết hạn, relay chuyển sang `onExpire` và timeout được xóa khỏi NVS.
 
 Hủy timeout:
 
@@ -92,52 +74,160 @@ Hủy timeout:
 {"channel":1,"cancel":true}
 ```
 
-Đọc và nhận snapshot retained:
+Yêu cầu và nhận snapshot:
 
 ```text
-Request: pump/{deviceId}/relay/timeout/get, payload {}
+Request: pump/{deviceId}/relay/timeout/get
+Payload: {}
 State:   pump/{deviceId}/relay/timeout/state
+Retain:  true
 ```
+
+Timeout đang hoạt động:
 
 ```json
 {"timeouts":[{"channel":1,"active":true,"state":true,"onExpire":false,"expiresAt":1787063400}]}
 ```
 
-## Schedule theo relay
+Relay không có timeout chỉ trả `channel` và `active:false`.
 
-Ghi toàn bộ lịch của một relay (tối đa 8 event):
+## One-shot schedule theo relay
+
+Mỗi relay có tối đa 8 event. Event chạy một lần tại thời điểm tuyệt đối và
+được lưu trong NVS.
 
 ```text
-Topic: pump/{deviceId}/relay/schedule/set
+Topic command: pump/{deviceId}/relay/schedule/set
 ```
+
+### Tạo hoặc cập nhật event
 
 ```json
 {
-  "channel":2,
-  "enabled":true,
-  "events":[
-    {"id":1,"days":[1,2,3,4,5,6,7],"time":"06:00","state":true},
-    {"id":2,"days":[1,2,3,4,5,6,7],"time":"06:30","state":false}
+  "channel":1,
+  "action":"upsert",
+  "event":{
+    "id":1,
+    "day":"2026-08-20",
+    "dueDate":"2026-08-20T18:05:00+07:00",
+    "state":true
+  }
+}
+```
+
+- `channel`: từ 1 đến 4.
+- `id`: từ 1 đến 255 và duy nhất trong cùng relay.
+- `day`: đúng định dạng `YYYY-MM-DD`.
+- `dueDate`: đúng định dạng `YYYY-MM-DDTHH:MM:SS+07:00`.
+- Ngày trong `day` phải trùng với phần ngày của `dueDate`.
+- `state`: trạng thái relay cần áp dụng khi event chạy.
+- Upsert ID đã tồn tại sẽ thay event cũ và đặt status về `pending`.
+
+### Xóa event
+
+```json
+{"channel":1,"action":"delete","eventId":1}
+```
+
+### Bật hoặc tắt schedule
+
+```json
+{"channel":1,"action":"set_enabled","enabled":true}
+```
+
+Tắt schedule không xóa event và không thay đổi trạng thái relay hiện tại.
+
+### Đọc schedule
+
+```text
+Request: pump/{deviceId}/relay/schedule/get
+Payload: {}
+State:   pump/{deviceId}/relay/schedule/state
+Retain:  true
+```
+
+Ví dụ state:
+
+```json
+{
+  "schedules":[
+    {
+      "channel":1,
+      "enabled":true,
+      "events":[
+        {
+          "id":1,
+          "day":"2026-08-20",
+          "dueDate":"2026-08-20T18:05:00+07:00",
+          "state":true,
+          "status":"pending"
+        }
+      ]
+    }
   ]
 }
 ```
 
-`days` dùng `1=Thứ hai ... 7=Chủ nhật`. Tắt lịch nhưng giữ trạng thái relay:
+Giá trị `status`:
 
-```json
-{"channel":2,"enabled":false}
-```
+- `pending`: event chưa chạy hoặc chưa đến hạn.
+- `blocked_by_timeout`: event đã đến hạn nhưng timeout của relay đang active.
+- `executed`: event đã chạy và không được chạy lại sau reboot.
 
-Đọc và nhận snapshot retained:
+`blocked_by_timeout` là trạng thái suy ra khi publish, không được lưu trong NVS.
+NVS chỉ lưu `pending` hoặc `executed`.
+
+## Quy tắc ưu tiên
+
+1. Timeout đang active có ưu tiên cao hơn schedule của cùng relay.
+2. Schedule đến hạn không hủy timeout và tiếp tục giữ `pending`.
+3. Timeout hoàn tất và được xóa thành công thì event quá hạn chạy trong vòng xử
+   lý tiếp theo rồi chuyển thành `executed`.
+4. Nếu thao tác relay hoặc lưu NVS của timeout thất bại, timeout vẫn active và
+   schedule tiếp tục bị chặn.
+5. Lệnh ON/OFF trực tiếp hủy timeout của đúng relay nhưng giữ schedule.
+6. Timeout mới thay thế timeout cũ của đúng relay.
+7. Schedule chỉ chạy khi RTC/NTP cung cấp thời gian hợp lệ.
+
+## ACK và error
+
+Mỗi command gửi vào `relay/set`, `relay/timeout/set` hoặc `relay/schedule/set`
+nhận một ACK:
 
 ```text
-Request: pump/{deviceId}/relay/schedule/get, payload {}
-State:   pump/{deviceId}/relay/schedule/state
+Topic: pump/{deviceId}/relay/command/ack
+Retain: false
 ```
 
-## Quy tắc ưu tiên (cách A)
+Thành công:
 
-- ON/OFF trực tiếp từ app hoặc nút vật lý hủy timeout của đúng relay, nhưng giữ schedule.
-- Timeout mới thay timeout cũ của đúng relay.
-- Event schedule đến giờ hủy timeout của đúng relay, nhưng giữ nguyên cấu hình schedule.
-- Mọi timeout và schedule được lưu NVS; schedule chỉ chạy khi RTC/NTP cung cấp thời gian hợp lệ.
+```json
+{"channel":1,"ok":true,"result":"ok"}
+```
+
+Lỗi:
+
+```json
+{"channel":1,"ok":false,"result":"storage_error"}
+```
+
+Các giá trị `result`:
+
+- `ok`
+- `invalid_channel`
+- `invalid_argument`
+- `time_unavailable`
+- `storage_error`
+- `relay_error`
+- `not_started`
+
+Nếu payload không thể decode, ACK trả `channel:0`, `ok:false` và
+`result:"invalid_argument"`.
+
+## Hành vi khi khởi động
+
+- Firmware khởi tạo cả 4 relay ở trạng thái OFF.
+- Timeout và schedule được đọc lại từ NVS.
+- Event có status `executed` không chạy lại.
+- Event `pending` đã quá hạn chạy khi thời gian hợp lệ và không có timeout active
+  trên cùng relay.
