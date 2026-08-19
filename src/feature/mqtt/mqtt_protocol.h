@@ -28,10 +28,6 @@ bool decodeSetCommand(const uint8_t* payload, size_t length,
                       RelayContract::Command& command);
 bool decodeTimeoutCommand(const uint8_t* payload, size_t length,
                           RelayContract::Command& command);
-bool decodeScheduleCommand(const uint8_t* payload, size_t length,
-                           RelayContract::Command& command);
-bool decodeOneShotScheduleCommand(const uint8_t* payload, size_t length,
-                                  RelayContract::Command& command);
 bool decodeIntervalScheduleCommand(const uint8_t* payload, size_t length,
                                    RelayContract::Command& command);
 size_t encodeRelayStates(
@@ -39,11 +35,6 @@ size_t encodeRelayStates(
     size_t outputSize);
 size_t encodeTimeoutStates(const RelayContract::AutomationSnapshot& snapshot,
                            char* output, size_t outputSize);
-size_t encodeScheduleStates(const RelayContract::AutomationSnapshot& snapshot,
-                            char* output, size_t outputSize);
-size_t encodeOneShotScheduleStates(
-    const RelayContract::AutomationSnapshot& snapshot, uint64_t nowEpoch,
-    char* output, size_t outputSize);
 size_t encodeIntervalScheduleStates(
     const RelayContract::AutomationSnapshot& snapshot, uint64_t nowEpoch,
     char* output, size_t outputSize);

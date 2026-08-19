@@ -120,12 +120,8 @@ RelayContract::TimeSnapshot snapshot() {
   RelayContract::TimeSnapshot result{};
   const time_t epoch = currentEpoch();
   if (epoch == 0) return result;
-  struct tm local = {};
-  localtime_r(&epoch, &local);
   result.valid = true;
   result.epochSeconds = static_cast<uint64_t>(epoch);
-  result.weekday = local.tm_wday == 0 ? 7 : static_cast<uint8_t>(local.tm_wday);
-  result.minuteOfDay = static_cast<uint16_t>(local.tm_hour * 60 + local.tm_min);
   return result;
 }
 

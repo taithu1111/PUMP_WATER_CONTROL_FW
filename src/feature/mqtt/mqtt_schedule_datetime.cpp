@@ -41,13 +41,6 @@ int64_t daysFromCivil(int year, unsigned month, unsigned day) {
 
 }  // namespace
 
-bool parse(const char* day, const char* dueDate, uint64_t& dueAt) {
-  if (day == nullptr || dueDate == nullptr || strlen(day) != 10 ||
-      strncmp(day, dueDate, 10) != 0 || day[4] != '-' || day[7] != '-')
-    return false;
-  return parseTimestamp(dueDate, dueAt);
-}
-
 bool parseTimestamp(const char* timestamp, uint64_t& epoch) {
   if (timestamp == nullptr || strlen(timestamp) != 25 ||
       timestamp[4] != '-' || timestamp[7] != '-' ||
@@ -78,12 +71,6 @@ bool parseTimestamp(const char* timestamp, uint64_t& epoch) {
   if (localSeconds < UTC7_OFFSET_SECONDS) return false;
   epoch = static_cast<uint64_t>(localSeconds - UTC7_OFFSET_SECONDS);
   return true;
-}
-
-void format(uint64_t dueAt, char day[11], char dueDate[26]) {
-  formatTimestamp(dueAt, dueDate);
-  memcpy(day, dueDate, 10);
-  day[10] = '\0';
 }
 
 void formatTimestamp(uint64_t epoch, char timestamp[26]) {
