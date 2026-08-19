@@ -7,6 +7,8 @@ namespace AppConfig {
 namespace System {
 constexpr uint8_t OUTLET_COUNT = 4;
 constexpr char BLE_DEVICE_NAME[] = "PUMP-CONTROL";
+constexpr char OPERATING_MODE_NVS_NAMESPACE[] = "operating_mode";
+constexpr char OPERATING_MODE_NVS_KEY[] = "last_mode";
 }  // namespace System
 
 namespace Hardware {
@@ -19,6 +21,9 @@ constexpr uint8_t DS1307_ADDRESS = 0x68;
 constexpr int8_t RTC_I2C_SDA_PIN = 4;
 constexpr int8_t RTC_I2C_SCL_PIN = 5;
 constexpr uint32_t RTC_I2C_FREQUENCY_HZ = 100000;
+
+constexpr int8_t OPERATING_MODE_PIN = 6;
+constexpr uint32_t OPERATING_MODE_DEBOUNCE_MS = 200;
 
 constexpr uint8_t RELAY_PCF_PORTS[System::OUTLET_COUNT] = {1, 2, 3, 4};
 constexpr bool RELAY_ACTIVE_LOW = true;
