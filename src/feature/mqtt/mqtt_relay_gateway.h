@@ -6,7 +6,8 @@
 
 namespace MqttRelayGateway {
 
-using CommandHandler = std::function<void(const RelayContract::Command&)>;
+using CommandHandler =
+    std::function<RelayContract::CommandResult(const RelayContract::Command&)>;
 using AutomationSnapshotProvider =
     std::function<bool(RelayContract::AutomationSnapshot&)>;
 using RelayStateProvider = std::function<void(bool*)>;

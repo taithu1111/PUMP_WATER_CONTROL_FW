@@ -19,6 +19,16 @@ enum class CommandType : uint8_t {
   SetOneShotScheduleEnabled,
 };
 
+enum class CommandResult : uint8_t {
+  Ok,
+  InvalidChannel,
+  InvalidArgument,
+  TimeUnavailable,
+  StorageError,
+  RelayError,
+  NotStarted,
+};
+
 enum ChangeMask : uint8_t {
   RelayChanged = 1U << 0,
   TimeoutChanged = 1U << 1,

@@ -6,15 +6,7 @@
 
 namespace RelayAutomation {
 
-enum class Result : uint8_t {
-  Ok,
-  InvalidChannel,
-  InvalidArgument,
-  TimeUnavailable,
-  StorageError,
-  RelayError,
-  NotStarted,
-};
+using Result = RelayContract::CommandResult;
 
 using RelayWriter = std::function<bool(uint8_t channel, bool state)>;
 using ChangeHandler = std::function<void(uint8_t changeMask, uint8_t channel)>;

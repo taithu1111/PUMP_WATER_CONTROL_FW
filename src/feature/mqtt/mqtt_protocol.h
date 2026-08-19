@@ -19,6 +19,7 @@ struct Topics {
   char scheduleSet[TOPIC_SIZE];
   char scheduleGet[TOPIC_SIZE];
   char scheduleState[TOPIC_SIZE];
+  char commandAck[TOPIC_SIZE];
   char status[TOPIC_SIZE];
 };
 
@@ -41,5 +42,7 @@ size_t encodeScheduleStates(const RelayContract::AutomationSnapshot& snapshot,
 size_t encodeOneShotScheduleStates(
     const RelayContract::AutomationSnapshot& snapshot, uint64_t nowEpoch,
     char* output, size_t outputSize);
+size_t encodeCommandAck(uint8_t channel, RelayContract::CommandResult result,
+                        char* output, size_t outputSize);
 
 }  // namespace MqttProtocol

@@ -26,6 +26,8 @@ void buildTopics(Topics& topics) {
            AppConfig::Network::MQTT_TOPIC_ROOT);
   snprintf(topics.scheduleState, sizeof(topics.scheduleState), "%s/relay/schedule/state",
            AppConfig::Network::MQTT_TOPIC_ROOT);
+  snprintf(topics.commandAck, sizeof(topics.commandAck), "%s/relay/command/ack",
+           AppConfig::Network::MQTT_TOPIC_ROOT);
   snprintf(topics.status, sizeof(topics.status), "%s/status",
            AppConfig::Network::MQTT_TOPIC_ROOT);
 }
@@ -254,6 +256,38 @@ size_t encodeOneShotScheduleStates(
       }
     }
   }
+  return serializeJson(document, output, outputSize);
+}
+
+size_t encodeCommandAck(uint8_t channel, RelayContract::CommandResult result,
+                        char* output, size_t outputSize) {
+  if (output == nullptr || outputSize == 0) return 0;
+  const char* resultText = "unknown";
+  switch (result) {
+    case RelayContract::CommandResult::Ok: resultText = "ok"; break;
+    case RelayContract::CommandResult::InvalidChannel:
+      resultText = "invalid_channel";
+      break;
+    case RelayContract::CommandResult::InvalidArgument:
+      resultText = "invalid_argument";
+      break;
+    case RelayContract::CommandResult::TimeUnavailable:
+      resultText = "time_unavailable";
+      break;
+    case RelayContract::CommandResult::StorageError:
+      resultText = "storage_error";
+      break;
+    case RelayContract::CommandResult::RelayError:
+      resultText = "relay_error";
+      break;
+    case RelayContract::CommandResult::NotStarted:
+      resultText = "not_started";
+      break;
+  }
+  JsonDocument document;
+  document["channel"] = channel;
+  document["ok"] = result == RelayContract::CommandResult::Ok;
+  document["result"] = resultText;
   return serializeJson(document, output, outputSize);
 }
 

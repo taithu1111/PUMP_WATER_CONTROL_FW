@@ -49,11 +49,20 @@ void enqueueMessage(const char* topic, const uint8_t* payload, size_t length) {
   ++queueCount;
 }
 
-bool publishPayload(const char* topic, size_t length) {
+bool publishPayload(const char* topic, size_t length, bool retained = true) {
   return length > 0 && length < sizeof(publishBuffer) &&
          MqttConnection::publish(
              topic, reinterpret_cast<const uint8_t*>(publishBuffer), length,
-             true);
+             retained);
+}
+
+bool publishCommandAck(uint8_t channel,
+                       RelayContract::CommandResult result) {
+  return publishPayload(
+      topics.commandAck,
+      MqttProtocol::encodeCommandAck(channel, result, publishBuffer,
+                                     sizeof(publishBuffer)),
+      false);
 }
 
 bool publishRelayState() {
@@ -123,11 +132,16 @@ void dispatchCommand(const RawMessage& message) {
     valid = MqttProtocol::decodeOneShotScheduleCommand(
         message.payload, message.payloadLength, command);
   }
+  RelayContract::CommandResult result =
+      RelayContract::CommandResult::InvalidArgument;
   if (valid && handleCommand) {
-    handleCommand(command);
+    result = handleCommand(command);
+  } else if (valid) {
+    result = RelayContract::CommandResult::NotStarted;
   } else {
     LOG_PRINTLN("[mqtt] Invalid command payload");
   }
+  publishCommandAck(valid ? command.channel : 0, result);
 }
 
 void processQueuedMessages() {
