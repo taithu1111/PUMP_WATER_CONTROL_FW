@@ -13,6 +13,7 @@ using ChangeHandler = std::function<void(uint8_t changeMask, uint8_t channel)>;
 
 bool begin(RelayWriter relayWriter, ChangeHandler changeHandler = nullptr);
 void end();
+void setPaused(bool paused);
 void loop();
 
 Result handleCommand(const RelayContract::Command& command);

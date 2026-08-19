@@ -48,7 +48,9 @@ void onOperatingModeChanged(OperatingMode::Mode mode) {
 
   if (mode == OperatingMode::Mode::Online) {
     startOnlineServices();
+    RelayAutomation::setPaused(false);
   } else {
+    RelayAutomation::setPaused(true);
     stopOnlineServices();
   }
 }

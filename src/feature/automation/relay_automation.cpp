@@ -20,6 +20,7 @@ bool intervalResumePending[AppConfig::System::OUTLET_COUNT]{};
 RelayWriter writeRelay;
 ChangeHandler notifyChange;
 bool started = false;
+bool automationPaused = true;
 uint32_t lastPollMs = 0;
 
 bool validChannel(uint8_t channel) {
@@ -320,6 +321,7 @@ bool begin(RelayWriter relayWriter, ChangeHandler changeHandler) {
     }
     intervalResumePending[index] = hasActiveInterval(index);
   }
+  automationPaused = true;
   started = true;
   return true;
 }
@@ -327,8 +329,22 @@ bool begin(RelayWriter relayWriter, ChangeHandler changeHandler) {
 void end() {
   if (started) AutomationStorage::end();
   started = false;
+  automationPaused = true;
   writeRelay = nullptr;
   notifyChange = nullptr;
+}
+
+void setPaused(bool paused) {
+  if (!started || automationPaused == paused) return;
+
+  automationPaused = paused;
+  if (!automationPaused) {
+    for (uint8_t index = 0; index < AppConfig::System::OUTLET_COUNT; ++index) {
+      if (timeouts[index].active) timeoutRestorePending[index] = true;
+      if (hasActiveInterval(index)) intervalResumePending[index] = true;
+    }
+  }
+  LOG_PRINTF("[automation] %s\n", automationPaused ? "Paused" : "Resumed");
 }
 
 Result handleCommand(const RelayContract::Command& command) {
@@ -378,6 +394,7 @@ bool getSnapshot(RelayContract::AutomationSnapshot& output) {
 void loop() {
   if (!started) return;
   AutomationTime::loop();
+  if (automationPaused) return;
   const uint32_t nowMs = millis();
   if (static_cast<uint32_t>(nowMs - lastPollMs) < POLL_INTERVAL_MS) return;
   lastPollMs = nowMs;
