@@ -17,6 +17,9 @@ enum class CommandType : uint8_t {
   UpsertOneShotSchedule,
   DeleteOneShotSchedule,
   SetOneShotScheduleEnabled,
+  UpsertIntervalSchedule,
+  DeleteIntervalSchedule,
+  SetIntervalScheduleEnabled,
 };
 
 enum class CommandResult : uint8_t {
@@ -38,6 +41,28 @@ enum ChangeMask : uint8_t {
 enum class OneShotScheduleStatus : uint8_t {
   Pending,
   Executed,
+};
+
+enum class IntervalScheduleStatus : uint8_t {
+  Pending,
+  Active,
+  Completed,
+  Missed,
+};
+
+// An interval schedule turns its relay ON at startAt and OFF at endAt.
+// Both timestamps are absolute UTC epochs parsed from MQTT +07:00 values.
+struct IntervalScheduleEntry {
+  uint8_t id = 0;
+  uint64_t startAt = 0;
+  uint64_t endAt = 0;
+  IntervalScheduleStatus status = IntervalScheduleStatus::Pending;
+};
+
+struct IntervalScheduleConfig {
+  bool enabled = false;
+  uint8_t entryCount = 0;
+  IntervalScheduleEntry entries[MAX_SCHEDULE_EVENTS]{};
 };
 
 // dueAt stores the absolute UTC epoch parsed from the day/dueDate MQTT fields.
@@ -84,6 +109,9 @@ struct Command {
   OneShotScheduleEvent oneShotEvent{};
   uint8_t scheduleEventId = 0;
   bool scheduleEnabled = false;
+  IntervalScheduleEntry intervalSchedule{};
+  uint8_t intervalScheduleId = 0;
+  bool intervalScheduleEnabled = false;
 };
 
 struct AutomationSnapshot {
@@ -91,6 +119,8 @@ struct AutomationSnapshot {
   TimeoutConfig timeouts[AppConfig::System::OUTLET_COUNT]{};
   ScheduleConfig schedules[AppConfig::System::OUTLET_COUNT]{};
   OneShotScheduleConfig oneShotSchedules[AppConfig::System::OUTLET_COUNT]{};
+  IntervalScheduleConfig
+      intervalSchedules[AppConfig::System::OUTLET_COUNT]{};
 };
 
 struct TimeSnapshot {
