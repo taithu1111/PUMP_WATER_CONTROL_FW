@@ -77,6 +77,7 @@ struct Command {
 };
 
 struct AutomationSnapshot {
+  uint64_t currentEpoch = 0;
   TimeoutConfig timeouts[AppConfig::System::OUTLET_COUNT]{};
   ScheduleConfig schedules[AppConfig::System::OUTLET_COUNT]{};
   OneShotScheduleConfig oneShotSchedules[AppConfig::System::OUTLET_COUNT]{};

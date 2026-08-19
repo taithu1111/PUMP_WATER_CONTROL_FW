@@ -337,6 +337,8 @@ Result handleCommand(const RelayContract::Command& command) {
 
 bool getSnapshot(RelayContract::AutomationSnapshot& output) {
   if (!started) return false;
+  const auto now = AutomationTime::snapshot();
+  output.currentEpoch = now.valid ? now.epochSeconds : 0;
   for (uint8_t i = 0; i < AppConfig::System::OUTLET_COUNT; ++i) {
     output.timeouts[i] = timeouts[i];
     output.schedules[i] = schedules[i];
