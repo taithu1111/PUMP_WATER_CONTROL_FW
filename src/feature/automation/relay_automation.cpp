@@ -17,7 +17,10 @@ RelayContract::TimeoutConfig timeouts[AppConfig::System::OUTLET_COUNT];
 RelayContract::ScheduleConfig schedules[AppConfig::System::OUTLET_COUNT];
 RelayContract::OneShotScheduleConfig
     oneShotSchedules[AppConfig::System::OUTLET_COUNT];
+RelayContract::IntervalScheduleConfig
+    intervalSchedules[AppConfig::System::OUTLET_COUNT];
 bool timeoutRestorePending[AppConfig::System::OUTLET_COUNT]{};
+bool intervalResumePending[AppConfig::System::OUTLET_COUNT]{};
 uint64_t lastExecutedMinute[AppConfig::System::OUTLET_COUNT]
                            [RelayContract::MAX_SCHEDULE_EVENTS]{};
 RelayWriter writeRelay;
@@ -74,6 +77,60 @@ void clearOneShotSchedule(
   }
 }
 
+bool validIntervalSchedule(
+    const RelayContract::IntervalScheduleConfig& config) {
+  if (config.entryCount > RelayContract::MAX_SCHEDULE_EVENTS) return false;
+  for (uint8_t i = 0; i < config.entryCount; ++i) {
+    const auto& entry = config.entries[i];
+    if (entry.id == 0 || entry.startAt == 0 || entry.endAt == 0 ||
+        entry.startAt >= entry.endAt ||
+        entry.status > RelayContract::IntervalScheduleStatus::Missed)
+      return false;
+    for (uint8_t j = i + 1; j < config.entryCount; ++j) {
+      const auto& other = config.entries[j];
+      if (entry.id == other.id ||
+          (entry.startAt < other.endAt && other.startAt < entry.endAt))
+        return false;
+    }
+  }
+  return true;
+}
+
+void clearIntervalSchedule(
+    RelayContract::IntervalScheduleConfig& config) {
+  config.enabled = false;
+  config.entryCount = 0;
+  for (uint8_t i = 0; i < RelayContract::MAX_SCHEDULE_EVENTS; ++i) {
+    config.entries[i].id = 0;
+    config.entries[i].startAt = 0;
+    config.entries[i].endAt = 0;
+    config.entries[i].status = RelayContract::IntervalScheduleStatus::Pending;
+  }
+}
+
+void sortIntervalEntries(RelayContract::IntervalScheduleConfig& config) {
+  for (uint8_t i = 1; i < config.entryCount; ++i) {
+    auto entry = config.entries[i];
+    uint8_t position = i;
+    while (position > 0 &&
+           config.entries[position - 1].startAt > entry.startAt) {
+      config.entries[position] = config.entries[position - 1];
+      --position;
+    }
+    config.entries[position] = entry;
+  }
+}
+
+bool hasActiveInterval(uint8_t index) {
+  const auto& config = intervalSchedules[index];
+  for (uint8_t i = 0; i < config.entryCount; ++i) {
+    if (config.entries[i].status ==
+        RelayContract::IntervalScheduleStatus::Active)
+      return true;
+  }
+  return false;
+}
+
 void publishChange(uint8_t mask, uint8_t channel) {
   if (notifyChange) notifyChange(mask, channel);
 }
@@ -91,6 +148,7 @@ Result cancelTimeoutInternal(uint8_t channel, bool notify) {
 Result applyManual(uint8_t channel, bool state) {
   const Result cancelResult = cancelTimeoutInternal(channel, true);
   if (cancelResult != Result::Ok) return cancelResult;
+  intervalResumePending[indexOf(channel)] = false;
   if (!writeRelay(channel, state)) return Result::RelayError;
   publishChange(RelayContract::RelayChanged, channel);
   return Result::Ok;
@@ -119,6 +177,7 @@ Result setTimeout(uint8_t channel, bool initialState, uint32_t durationSeconds,
     timeoutRestorePending[index] = previousPending;
     return Result::RelayError;
   }
+  if (hasActiveInterval(index)) intervalResumePending[index] = true;
   publishChange(RelayContract::RelayChanged | RelayContract::TimeoutChanged,
                 channel);
   return Result::Ok;
@@ -201,6 +260,88 @@ Result setOneShotScheduleEnabled(uint8_t channel, bool enabled) {
   return saveOneShotSchedule(channel, next);
 }
 
+Result saveIntervalSchedule(
+    uint8_t channel, RelayContract::IntervalScheduleConfig next) {
+  sortIntervalEntries(next);
+  if (!validIntervalSchedule(next)) return Result::InvalidArgument;
+  if (!AutomationStorage::saveIntervalSchedule(channel, next))
+    return Result::StorageError;
+  intervalSchedules[indexOf(channel)] = next;
+  publishChange(RelayContract::ScheduleChanged, channel);
+  return Result::Ok;
+}
+
+Result upsertIntervalSchedule(
+    uint8_t channel, const RelayContract::IntervalScheduleEntry& commandEntry) {
+  if (commandEntry.id == 0 || commandEntry.startAt == 0 ||
+      commandEntry.endAt == 0 || commandEntry.startAt >= commandEntry.endAt)
+    return Result::InvalidArgument;
+
+  auto next = intervalSchedules[indexOf(channel)];
+  uint8_t entryIndex = next.entryCount;
+  for (uint8_t i = 0; i < next.entryCount; ++i) {
+    if (next.entries[i].id == commandEntry.id) {
+      if (next.entries[i].status ==
+          RelayContract::IntervalScheduleStatus::Active)
+        return Result::InvalidArgument;
+      entryIndex = i;
+      break;
+    }
+  }
+  if (entryIndex == next.entryCount) {
+    if (next.entryCount >= RelayContract::MAX_SCHEDULE_EVENTS)
+      return Result::InvalidArgument;
+    ++next.entryCount;
+  }
+  next.entries[entryIndex] = commandEntry;
+  next.entries[entryIndex].status =
+      RelayContract::IntervalScheduleStatus::Pending;
+  return saveIntervalSchedule(channel, next);
+}
+
+Result deleteIntervalSchedule(uint8_t channel, uint8_t scheduleId) {
+  if (scheduleId == 0) return Result::InvalidArgument;
+  const uint8_t index = indexOf(channel);
+  auto next = intervalSchedules[index];
+  uint8_t entryIndex = next.entryCount;
+  for (uint8_t i = 0; i < next.entryCount; ++i) {
+    if (next.entries[i].id == scheduleId) {
+      entryIndex = i;
+      break;
+    }
+  }
+  if (entryIndex == next.entryCount) return Result::InvalidArgument;
+
+  const bool wasActive = next.entries[entryIndex].status ==
+                         RelayContract::IntervalScheduleStatus::Active;
+  const bool relayWasStopped =
+      wasActive && !timeouts[index].active && writeRelay(channel, false);
+  if (wasActive && !timeouts[index].active && !relayWasStopped)
+    return Result::RelayError;
+
+  for (uint8_t i = entryIndex; i + 1 < next.entryCount; ++i) {
+    next.entries[i] = next.entries[i + 1];
+  }
+  --next.entryCount;
+  next.entries[next.entryCount].id = 0;
+  next.entries[next.entryCount].startAt = 0;
+  next.entries[next.entryCount].endAt = 0;
+  next.entries[next.entryCount].status =
+      RelayContract::IntervalScheduleStatus::Pending;
+  const Result result = saveIntervalSchedule(channel, next);
+  if (result != Result::Ok && relayWasStopped)
+    intervalResumePending[index] = true;
+  if (result == Result::Ok && relayWasStopped)
+    publishChange(RelayContract::RelayChanged, channel);
+  return result;
+}
+
+Result setIntervalScheduleEnabled(uint8_t channel, bool enabled) {
+  auto next = intervalSchedules[indexOf(channel)];
+  next.enabled = enabled;
+  return saveIntervalSchedule(channel, next);
+}
+
 void processTimeout(uint8_t channel,
                     const RelayContract::TimeSnapshot& now) {
   const uint8_t index = indexOf(channel);
@@ -266,6 +407,65 @@ void processOneShotSchedule(uint8_t channel,
   }
 }
 
+void processIntervalSchedule(uint8_t channel,
+                             const RelayContract::TimeSnapshot& now) {
+  const uint8_t index = indexOf(channel);
+  auto& config = intervalSchedules[index];
+
+  for (uint8_t i = 0; i < config.entryCount; ++i) {
+    auto& entry = config.entries[i];
+    if (entry.status == RelayContract::IntervalScheduleStatus::Active &&
+        now.epochSeconds >= entry.endAt) {
+      if (timeouts[index].active) continue;
+      if (!writeRelay(channel, false)) continue;
+      entry.status = RelayContract::IntervalScheduleStatus::Completed;
+      if (!AutomationStorage::saveIntervalSchedule(channel, config)) {
+        entry.status = RelayContract::IntervalScheduleStatus::Active;
+        intervalResumePending[index] = true;
+        continue;
+      }
+      intervalResumePending[index] = false;
+      publishChange(RelayContract::RelayChanged |
+                        RelayContract::ScheduleChanged,
+                    channel);
+    }
+  }
+
+  for (uint8_t i = 0; i < config.entryCount; ++i) {
+    auto& entry = config.entries[i];
+    if (entry.status != RelayContract::IntervalScheduleStatus::Pending)
+      continue;
+    if (now.epochSeconds >= entry.endAt) {
+      entry.status = RelayContract::IntervalScheduleStatus::Missed;
+      if (!AutomationStorage::saveIntervalSchedule(channel, config)) {
+        entry.status = RelayContract::IntervalScheduleStatus::Pending;
+        continue;
+      }
+      publishChange(RelayContract::ScheduleChanged, channel);
+      continue;
+    }
+    if (!config.enabled || timeouts[index].active ||
+        now.epochSeconds < entry.startAt)
+      continue;
+    if (!writeRelay(channel, true)) continue;
+    entry.status = RelayContract::IntervalScheduleStatus::Active;
+    if (!AutomationStorage::saveIntervalSchedule(channel, config)) {
+      entry.status = RelayContract::IntervalScheduleStatus::Pending;
+      continue;
+    }
+    intervalResumePending[index] = false;
+    publishChange(RelayContract::RelayChanged |
+                      RelayContract::ScheduleChanged,
+                  channel);
+  }
+
+  if (!timeouts[index].active && intervalResumePending[index] &&
+      hasActiveInterval(index) && writeRelay(channel, true)) {
+    intervalResumePending[index] = false;
+    publishChange(RelayContract::RelayChanged, channel);
+  }
+}
+
 }  // namespace
 
 bool begin(RelayWriter relayWriter, ChangeHandler changeHandler) {
@@ -288,6 +488,12 @@ bool begin(RelayWriter relayWriter, ChangeHandler changeHandler) {
         !validOneShotSchedule(oneShotSchedules[index])) {
       clearOneShotSchedule(oneShotSchedules[index]);
     }
+    if (!AutomationStorage::loadIntervalSchedule(
+            channel, intervalSchedules[index]) ||
+        !validIntervalSchedule(intervalSchedules[index])) {
+      clearIntervalSchedule(intervalSchedules[index]);
+    }
+    intervalResumePending[index] = hasActiveInterval(index);
   }
   started = true;
   return true;
@@ -329,6 +535,18 @@ Result handleCommand(const RelayContract::Command& command) {
       result = setOneShotScheduleEnabled(command.channel,
                                          command.scheduleEnabled);
       break;
+    case RelayContract::CommandType::UpsertIntervalSchedule:
+      result = upsertIntervalSchedule(command.channel,
+                                      command.intervalSchedule);
+      break;
+    case RelayContract::CommandType::DeleteIntervalSchedule:
+      result = deleteIntervalSchedule(command.channel,
+                                      command.intervalScheduleId);
+      break;
+    case RelayContract::CommandType::SetIntervalScheduleEnabled:
+      result = setIntervalScheduleEnabled(
+          command.channel, command.intervalScheduleEnabled);
+      break;
   }
   if (result != Result::Ok)
     LOG_PRINTF("[automation] Command failed: %s\n", resultName(result));
@@ -343,6 +561,7 @@ bool getSnapshot(RelayContract::AutomationSnapshot& output) {
     output.timeouts[i] = timeouts[i];
     output.schedules[i] = schedules[i];
     output.oneShotSchedules[i] = oneShotSchedules[i];
+    output.intervalSchedules[i] = intervalSchedules[i];
   }
   return true;
 }
@@ -361,6 +580,7 @@ void loop() {
     processTimeout(channel, now);
     processSchedule(channel, now);
     processOneShotSchedule(channel, now);
+    processIntervalSchedule(channel, now);
   }
 }
 
