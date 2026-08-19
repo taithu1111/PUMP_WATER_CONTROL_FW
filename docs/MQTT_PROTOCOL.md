@@ -91,43 +91,45 @@ Timeout đang hoạt động:
 
 Relay không có timeout chỉ trả `channel` và `active:false`.
 
-## One-shot schedule theo relay
+## Interval schedule theo relay
 
-Mỗi relay có tối đa 8 event. Event chạy một lần tại thời điểm tuyệt đối và
-được lưu trong NVS.
+Mỗi relay có tối đa 8 schedule. Mỗi schedule là một phiên chạy hoàn chỉnh:
+relay ON tại `startAt` và OFF tại `endAt`. Schedule được lưu trong NVS.
 
 ```text
 Topic command: pump/{deviceId}/relay/schedule/set
 ```
 
-### Tạo hoặc cập nhật event
+### Tạo hoặc cập nhật schedule
 
 ```json
 {
   "channel":1,
   "action":"upsert",
-  "event":{
+  "schedule":{
     "id":1,
-    "day":"2026-08-20",
-    "dueDate":"2026-08-20T18:05:00+07:00",
-    "state":true
+    "startAt":"2026-08-20T18:00:00+07:00",
+    "endAt":"2026-08-20T18:30:00+07:00"
   }
 }
 ```
 
 - `channel`: từ 1 đến 4.
 - `id`: từ 1 đến 255 và duy nhất trong cùng relay.
-- `day`: đúng định dạng `YYYY-MM-DD`.
-- `dueDate`: đúng định dạng `YYYY-MM-DDTHH:MM:SS+07:00`.
-- Ngày trong `day` phải trùng với phần ngày của `dueDate`.
-- `state`: trạng thái relay cần áp dụng khi event chạy.
-- Upsert ID đã tồn tại sẽ thay event cũ và đặt status về `pending`.
+- `startAt`, `endAt`: đúng định dạng `YYYY-MM-DDTHH:MM:SS+07:00`.
+- Bắt buộc `startAt < endAt`.
+- Các schedule của cùng relay không được chồng thời gian.
+- Upsert ID đã tồn tại sẽ thay schedule cũ và đặt status về `pending`.
+- Không được upsert một schedule đang `active`; phải delete để dừng trước.
 
-### Xóa event
+### Xóa schedule
 
 ```json
-{"channel":1,"action":"delete","eventId":1}
+{"channel":1,"action":"delete","scheduleId":1}
 ```
+
+Nếu schedule đang `active` và không có timeout, relay được OFF trước khi schedule
+bị xóa. Nếu timeout đang active, timeout tiếp tục sở hữu trạng thái relay.
 
 ### Bật hoặc tắt schedule
 
@@ -135,7 +137,8 @@ Topic command: pump/{deviceId}/relay/schedule/set
 {"channel":1,"action":"set_enabled","enabled":true}
 ```
 
-Tắt schedule không xóa event và không thay đổi trạng thái relay hiện tại.
+Tắt schedule không xóa dữ liệu. Schedule `pending` không được bắt đầu, nhưng
+schedule đang `active` tiếp tục chạy đến `endAt` rồi OFF.
 
 ### Đọc schedule
 
@@ -154,12 +157,11 @@ Ví dụ state:
     {
       "channel":1,
       "enabled":true,
-      "events":[
+      "entries":[
         {
           "id":1,
-          "day":"2026-08-20",
-          "dueDate":"2026-08-20T18:05:00+07:00",
-          "state":true,
+          "startAt":"2026-08-20T18:00:00+07:00",
+          "endAt":"2026-08-20T18:30:00+07:00",
           "status":"pending"
         }
       ]
@@ -170,24 +172,30 @@ Ví dụ state:
 
 Giá trị `status`:
 
-- `pending`: event chưa chạy hoặc chưa đến hạn.
-- `blocked_by_timeout`: event đã đến hạn nhưng timeout của relay đang active.
-- `executed`: event đã chạy và không được chạy lại sau reboot.
+- `pending`: schedule chưa đến `startAt`.
+- `active`: relay đã ON và chưa đến `endAt`.
+- `blocked_by_timeout`: đã đến khoảng chạy nhưng timeout đang sở hữu relay.
+- `completed`: relay đã OFF khi kết thúc phiên.
+- `missed`: toàn bộ khoảng chạy đã qua mà schedule chưa thể bắt đầu.
 
 `blocked_by_timeout` là trạng thái suy ra khi publish, không được lưu trong NVS.
-NVS chỉ lưu `pending` hoặc `executed`.
+NVS lưu `pending`, `active`, `completed` hoặc `missed`.
 
 ## Quy tắc ưu tiên
 
 1. Timeout đang active có ưu tiên cao hơn schedule của cùng relay.
-2. Schedule đến hạn không hủy timeout và tiếp tục giữ `pending`.
-3. Timeout hoàn tất và được xóa thành công thì event quá hạn chạy trong vòng xử
-   lý tiếp theo rồi chuyển thành `executed`.
-4. Nếu thao tác relay hoặc lưu NVS của timeout thất bại, timeout vẫn active và
+2. Timeout active tại `startAt`: schedule giữ `pending` và không bật relay.
+3. Timeout kết thúc trước `endAt`: schedule bật relay và chuyển `active`.
+4. Timeout kéo qua `endAt`: schedule chưa bắt đầu chuyển thành `missed`.
+5. Timeout xuất hiện khi schedule đang `active`: timeout giành quyền relay.
+6. Timeout kết thúc trước `endAt`: schedule đang active khôi phục relay ON.
+7. Timeout kết thúc sau `endAt`: relay OFF và schedule chuyển `completed`.
+8. Nếu thao tác relay hoặc lưu NVS của timeout thất bại, timeout vẫn active và
    schedule tiếp tục bị chặn.
-5. Lệnh ON/OFF trực tiếp hủy timeout của đúng relay nhưng giữ schedule.
-6. Timeout mới thay thế timeout cũ của đúng relay.
-7. Schedule chỉ chạy khi RTC/NTP cung cấp thời gian hợp lệ.
+9. Lệnh ON/OFF trực tiếp hủy timeout của đúng relay nhưng giữ schedule; trạng
+   thái manual không bị schedule active ghi đè ngay.
+10. Timeout mới thay thế timeout cũ của đúng relay.
+11. Schedule chỉ chạy khi RTC/NTP cung cấp thời gian hợp lệ.
 
 ## ACK và error
 
@@ -228,6 +236,10 @@ Nếu payload không thể decode, ACK trả `channel:0`, `ok:false` và
 
 - Firmware khởi tạo cả 4 relay ở trạng thái OFF.
 - Timeout và schedule được đọc lại từ NVS.
-- Event có status `executed` không chạy lại.
-- Event `pending` đã quá hạn chạy khi thời gian hợp lệ và không có timeout active
-  trên cùng relay.
+- Schedule `pending` trong khoảng `startAt`–`endAt` bắt đầu khi thời gian hợp lệ
+  và không có timeout active.
+- Schedule `active` được khôi phục ON nếu vẫn chưa đến `endAt` và không có
+  timeout active.
+- Schedule `pending` đã qua `endAt` chuyển thành `missed`.
+- Schedule `active` đã qua `endAt` được OFF và chuyển thành `completed` sau khi
+  timeout (nếu có) kết thúc.
