@@ -139,6 +139,59 @@ bool decodeOneShotScheduleCommand(const uint8_t* payload, size_t length,
   return true;
 }
 
+bool decodeIntervalScheduleCommand(const uint8_t* payload, size_t length,
+                                   RelayContract::Command& command) {
+  JsonDocument document;
+  if (deserializeJson(document, payload, length) ||
+      !document["channel"].is<int>() ||
+      !document["action"].is<const char*>())
+    return false;
+  const int channel = document["channel"].as<int>();
+  if (channel < 1 || channel > AppConfig::System::OUTLET_COUNT) return false;
+  command.channel = static_cast<uint8_t>(channel);
+
+  const char* action = document["action"].as<const char*>();
+  if (strcmp(action, "delete") == 0) {
+    if (!document["scheduleId"].is<int>()) return false;
+    const int scheduleId = document["scheduleId"].as<int>();
+    if (scheduleId < 1 || scheduleId > 255) return false;
+    command.type = RelayContract::CommandType::DeleteIntervalSchedule;
+    command.intervalScheduleId = static_cast<uint8_t>(scheduleId);
+    return true;
+  }
+
+  if (strcmp(action, "set_enabled") == 0) {
+    if (!document["enabled"].is<bool>()) return false;
+    command.type = RelayContract::CommandType::SetIntervalScheduleEnabled;
+    command.intervalScheduleEnabled = document["enabled"].as<bool>();
+    return true;
+  }
+
+  if (strcmp(action, "upsert") != 0 ||
+      !document["schedule"].is<JsonObject>())
+    return false;
+  JsonObject schedule = document["schedule"].as<JsonObject>();
+  if (!schedule["id"].is<int>() ||
+      !schedule["startAt"].is<const char*>() ||
+      !schedule["endAt"].is<const char*>())
+    return false;
+  const int scheduleId = schedule["id"].as<int>();
+  uint64_t startAt = 0;
+  uint64_t endAt = 0;
+  if (scheduleId < 1 || scheduleId > 255 ||
+      !MqttScheduleDateTime::parseTimestamp(
+          schedule["startAt"].as<const char*>(), startAt) ||
+      !MqttScheduleDateTime::parseTimestamp(
+          schedule["endAt"].as<const char*>(), endAt) ||
+      startAt >= endAt)
+    return false;
+  command.type = RelayContract::CommandType::UpsertIntervalSchedule;
+  command.intervalSchedule = {
+      static_cast<uint8_t>(scheduleId), startAt, endAt,
+      RelayContract::IntervalScheduleStatus::Pending};
+  return true;
+}
+
 bool decodeSetCommand(const uint8_t* payload,
                       size_t length,
                       RelayContract::Command& command) {
@@ -254,6 +307,47 @@ size_t encodeOneShotScheduleStates(
       } else {
         event["status"] = "pending";
       }
+    }
+  }
+  return serializeJson(document, output, outputSize);
+}
+
+size_t encodeIntervalScheduleStates(
+    const RelayContract::AutomationSnapshot& snapshot, uint64_t nowEpoch,
+    char* output, size_t outputSize) {
+  JsonDocument document;
+  JsonArray schedules = document["schedules"].to<JsonArray>();
+  for (uint8_t index = 0; index < AppConfig::System::OUTLET_COUNT; ++index) {
+    JsonObject item = schedules.add<JsonObject>();
+    item["channel"] = index + 1;
+    const auto& config = snapshot.intervalSchedules[index];
+    item["enabled"] = config.enabled;
+    JsonArray entries = item["entries"].to<JsonArray>();
+    for (uint8_t i = 0; i < config.entryCount; ++i) {
+      const auto& source = config.entries[i];
+      JsonObject entry = entries.add<JsonObject>();
+      entry["id"] = source.id;
+      char startAt[26];
+      char endAt[26];
+      MqttScheduleDateTime::formatTimestamp(source.startAt, startAt);
+      MqttScheduleDateTime::formatTimestamp(source.endAt, endAt);
+      entry["startAt"] = startAt;
+      entry["endAt"] = endAt;
+
+      const char* status = "pending";
+      if (source.status == RelayContract::IntervalScheduleStatus::Completed) {
+        status = "completed";
+      } else if (source.status ==
+                 RelayContract::IntervalScheduleStatus::Missed) {
+        status = "missed";
+      } else if (config.enabled && snapshot.timeouts[index].active &&
+                 nowEpoch >= source.startAt && nowEpoch < source.endAt) {
+        status = "blocked_by_timeout";
+      } else if (source.status ==
+                 RelayContract::IntervalScheduleStatus::Active) {
+        status = "active";
+      }
+      entry["status"] = status;
     }
   }
   return serializeJson(document, output, outputSize);

@@ -43,10 +43,17 @@ int64_t daysFromCivil(int year, unsigned month, unsigned day) {
 
 bool parse(const char* day, const char* dueDate, uint64_t& dueAt) {
   if (day == nullptr || dueDate == nullptr || strlen(day) != 10 ||
-      strlen(dueDate) != 25 || strncmp(day, dueDate, 10) != 0 ||
-      day[4] != '-' || day[7] != '-' || dueDate[10] != 'T' ||
-      dueDate[13] != ':' || dueDate[16] != ':' ||
-      strcmp(dueDate + 19, "+07:00") != 0) return false;
+      strncmp(day, dueDate, 10) != 0 || day[4] != '-' || day[7] != '-')
+    return false;
+  return parseTimestamp(dueDate, dueAt);
+}
+
+bool parseTimestamp(const char* timestamp, uint64_t& epoch) {
+  if (timestamp == nullptr || strlen(timestamp) != 25 ||
+      timestamp[4] != '-' || timestamp[7] != '-' ||
+      timestamp[10] != 'T' || timestamp[13] != ':' ||
+      timestamp[16] != ':' || strcmp(timestamp + 19, "+07:00") != 0)
+    return false;
 
   int year = 0;
   int month = 0;
@@ -54,11 +61,12 @@ bool parse(const char* day, const char* dueDate, uint64_t& dueAt) {
   int hour = 0;
   int minute = 0;
   int second = 0;
-  if (!parseDigits(day, 0, 4, year) || !parseDigits(day, 5, 2, month) ||
-      !parseDigits(day, 8, 2, monthDay) ||
-      !parseDigits(dueDate, 11, 2, hour) ||
-      !parseDigits(dueDate, 14, 2, minute) ||
-      !parseDigits(dueDate, 17, 2, second) ||
+  if (!parseDigits(timestamp, 0, 4, year) ||
+      !parseDigits(timestamp, 5, 2, month) ||
+      !parseDigits(timestamp, 8, 2, monthDay) ||
+      !parseDigits(timestamp, 11, 2, hour) ||
+      !parseDigits(timestamp, 14, 2, minute) ||
+      !parseDigits(timestamp, 17, 2, second) ||
       year < 1970 || year > 2099 || month < 1 || month > 12 ||
       monthDay < 1 || monthDay > daysInMonth(year, month) || hour > 23 ||
       minute > 59 || second > 59) return false;
@@ -68,19 +76,24 @@ bool parse(const char* day, const char* dueDate, uint64_t& dueAt) {
                     static_cast<unsigned>(monthDay)) * 86400LL +
       hour * 3600LL + minute * 60LL + second;
   if (localSeconds < UTC7_OFFSET_SECONDS) return false;
-  dueAt = static_cast<uint64_t>(localSeconds - UTC7_OFFSET_SECONDS);
+  epoch = static_cast<uint64_t>(localSeconds - UTC7_OFFSET_SECONDS);
   return true;
 }
 
 void format(uint64_t dueAt, char day[11], char dueDate[26]) {
+  formatTimestamp(dueAt, dueDate);
+  memcpy(day, dueDate, 10);
+  day[10] = '\0';
+}
+
+void formatTimestamp(uint64_t epoch, char timestamp[26]) {
   const time_t localEpoch =
-      static_cast<time_t>(dueAt + UTC7_OFFSET_SECONDS);
+      static_cast<time_t>(epoch + UTC7_OFFSET_SECONDS);
   struct tm local = {};
   gmtime_r(&localEpoch, &local);
-  snprintf(day, 11, "%04d-%02d-%02d", local.tm_year + 1900,
-           local.tm_mon + 1, local.tm_mday);
-  snprintf(dueDate, 26, "%sT%02d:%02d:%02d+07:00", day, local.tm_hour,
-           local.tm_min, local.tm_sec);
+  snprintf(timestamp, 26, "%04d-%02d-%02dT%02d:%02d:%02d+07:00",
+           local.tm_year + 1900, local.tm_mon + 1, local.tm_mday,
+           local.tm_hour, local.tm_min, local.tm_sec);
 }
 
 }  // namespace MqttScheduleDateTime
