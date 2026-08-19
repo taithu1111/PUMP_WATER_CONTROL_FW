@@ -26,6 +26,10 @@ using BleRxHandler = std::function<void(const uint8_t *data, size_t len)>;
 // Call once in setup() before using any channel.
 void ble_begin(const char *name);
 
+// Stop advertising and disconnect the current client. A later ble_begin()
+// restarts advertising without rebuilding the BLE service.
+void ble_stop();
+
 // Optional: called whenever a client connects / disconnects.
 // When a password is set via ble_set_password(), the callback is only fired
 // with connected=true AFTER the client sends the correct password on

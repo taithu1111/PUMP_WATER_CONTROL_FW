@@ -42,6 +42,7 @@ static NimBLECharacteristic *_rxChar  = nullptr;
 static QueueHandle_t         _rxQueue = nullptr;
 static volatile uint16_t     _mtu     = 23;
 static bool                  _initialized = false;
+static bool                  _enabled = false;
 
 static enum { RS_CH, RS_LL, RS_LH, RS_DATA } _rs = RS_CH;
 static uint8_t  _rxCh;
@@ -70,7 +71,7 @@ class ServerCB : public NimBLEServerCallbacks {
         _conn_id = 0xFFFF;
         _mtu = 23;
         if (wasAuthed && _connectCb) _connectCb(false);
-        NimBLEDevice::startAdvertising();
+        if (_enabled) NimBLEDevice::startAdvertising();
     }
     void onMTUChange(uint16_t mtu, NimBLEConnInfo &info) override {
         _mtu = mtu;
@@ -182,7 +183,11 @@ void ble_set_auth_verifier(BleAuthVerifier verifier, uint32_t timeout_ms) {
 }
 
 void ble_begin(const char *name) {
-    if (_initialized) return;
+    _enabled = true;
+    if (_initialized) {
+        NimBLEDevice::startAdvertising();
+        return;
+    }
     _initialized = true;
 
     if (_rxQueue == nullptr)
@@ -245,10 +250,11 @@ void ble_disconnect() {
 }
 
 void ble_stop() {
+    _enabled = false;
     if (_server && _conn_id != 0xFFFF) {
         _server->disconnect(_conn_id);
     }
-    NimBLEDevice::getAdvertising()->stop();
+    if (_initialized) NimBLEDevice::getAdvertising()->stop();
 }
 
 void ble_dispatch() {

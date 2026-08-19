@@ -196,6 +196,20 @@ void begin(MqttTestStartHandler mqttTestStartHandler,
   LOG_PRINTLN("[activation] BLE provisioning started");
 }
 
+void stop() {
+  if (state == State::Stopped) return;
+
+  ble_stop();
+  state = State::Stopped;
+  startMqttTestHandler = nullptr;
+  mqttConnectedHandler = nullptr;
+  stopMqttHandler = nullptr;
+  mqttTestStartedMs = 0;
+  rebootAtMs = 0;
+  clearCandidate();
+  LOG_PRINTLN("[activation] BLE provisioning stopped");
+}
+
 void loop() {
   if (state == State::Stopped) {
     return;

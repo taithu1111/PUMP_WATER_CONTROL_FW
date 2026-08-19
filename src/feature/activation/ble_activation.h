@@ -16,6 +16,7 @@ bool loadStoredCredentials(String& ssid, String& password);
 void begin(MqttTestStartHandler mqttTestStartHandler,
            MqttConnectedHandler mqttConnectedHandler,
            MqttStopHandler mqttStopHandler);
+void stop();
 void loop();
 
 }  // namespace BleActivation
