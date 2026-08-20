@@ -1,0 +1,295 @@
+CHECKLIST ĐỒNG BỘ FIRMWARE - MOBILE APP - BACKEND
+=================================================
+
+Tài liệu này được viết theo góc nhìn của phía Firmware.
+
+
+1. FIRMWARE HIỆN ĐANG LÀM ĐƯỢC GÌ?
+-----------------------------------
+
+- Thiết bị có 4 relay, tương ứng 4 ổ điện.
+- Kết nối Wi-Fi bằng BLE provisioning.
+- Kết nối MQTT sau khi Wi-Fi thành công.
+- Bật/tắt từng relay từ App.
+- Tạo Timeout riêng cho từng relay.
+- Tạo Schedule riêng cho từng relay bằng startAt và endAt.
+- Lưu Wi-Fi, Timeout và Schedule trong NVS.
+- Khôi phục dữ liệu sau khi mất điện hoặc khởi động lại.
+- Chọn mode bằng công tắc GPIO 6:
+  + GPIO LOW: Online.
+  + GPIO HIGH: Offline thủ công.
+- Offline sẽ dừng Wi-Fi, MQTT, BLE và tạm dừng Timeout/Schedule.
+- Khi quay lại Online, Firmware kiểm tra thời gian hiện tại rồi xử lý lại
+  Timeout/Schedule đang lưu.
+
+
+2. FIRMWARE CẦN MOBILE APP CUNG CẤP GÌ?
+---------------------------------------
+
+A. Cài Wi-Fi cho thiết bị
+
+[ ] App quét được BLE tên PUMP-CONTROL.
+[ ] App kết nối đúng BLE của ESP.
+[ ] App yêu cầu ESP quét Wi-Fi.
+[ ] App hiển thị danh sách Wi-Fi ESP tìm được.
+[ ] App cho người dùng nhập SSID và password.
+[ ] App gửi SSID/password đúng định dạng Firmware yêu cầu.
+[ ] App chờ ESP kiểm tra Wi-Fi.
+[ ] App chờ ESP kiểm tra MQTT.
+[ ] App chỉ báo thành công sau khi nhận trạng thái active.
+[ ] App hiển thị được các lỗi:
+    - busy
+    - invalid_payload
+    - wifi_failed
+    - mqtt_failed
+    - scan_failed
+[ ] App xử lý trường hợp BLE bị mất kết nối giữa quá trình cài đặt.
+[ ] App hiểu rằng ESP sẽ reboot sau khi provisioning thành công.
+
+B. Điều khiển relay
+
+[ ] App gửi đúng relay từ 1 đến 4.
+[ ] App gửi true để bật, false để tắt.
+[ ] Sau khi gửi lệnh, App chờ Firmware trả ACK.
+[ ] Sau ACK, App tiếp tục chờ trạng thái relay thật từ Firmware.
+[ ] App không tự hiển thị relay đã ON/OFF chỉ vì người dùng vừa bấm nút.
+[ ] App dùng trạng thái Firmware gửi về làm kết quả chính thức.
+
+C. Tạo Timeout
+
+[ ] App gửi relay cần điều khiển.
+[ ] App gửi trạng thái áp dụng ngay.
+[ ] App gửi thời gian durationSec.
+[ ] App gửi trạng thái onExpire khi hết thời gian.
+[ ] durationSec phải từ 1 giây đến 30 ngày.
+[ ] App có chức năng hủy Timeout.
+[ ] App hiển thị Timeout nào đang chạy và khi nào hết hạn.
+
+D. Tạo Schedule
+
+[ ] App gửi relay từ 1 đến 4.
+[ ] App gửi ID Schedule từ 1 đến 255.
+[ ] App gửi startAt.
+[ ] App gửi endAt.
+[ ] startAt phải nhỏ hơn endAt.
+[ ] Thời gian phải đúng dạng YYYY-MM-DDTHH:MM:SS+07:00.
+[ ] Các Schedule của cùng relay không được chồng thời gian.
+[ ] Mỗi relay có tối đa 8 Schedule.
+[ ] App hỗ trợ tạo hoặc cập nhật Schedule.
+[ ] App hỗ trợ xóa Schedule.
+[ ] App hỗ trợ bật/tắt Schedule của từng relay.
+[ ] App đọc lại danh sách Schedule từ Firmware.
+[ ] App hiển thị được các trạng thái:
+    - pending: chưa đến giờ.
+    - active: đang chạy.
+    - blocked_by_timeout: đang bị Timeout chặn.
+    - completed: đã chạy xong.
+    - missed: đã qua thời gian nhưng không thể chạy.
+
+E. Trạng thái thiết bị
+
+[ ] App hiển thị thiết bị Online hay Offline.
+[ ] App hiển thị trạng thái thật của 4 relay.
+[ ] App yêu cầu lại toàn bộ trạng thái sau khi kết nối lại.
+[ ] App và Firmware dùng cùng múi giờ.
+
+
+3. FIRMWARE SẼ CUNG CẤP GÌ CHO MOBILE APP?
+------------------------------------------
+
+- Tên BLE của thiết bị.
+- BLE Service UUID, RX UUID và TX UUID.
+- Cách đóng gói dữ liệu BLE.
+- Lệnh quét Wi-Fi.
+- Danh sách Wi-Fi ESP tìm được.
+- Kết quả kiểm tra Wi-Fi.
+- Kết quả kiểm tra MQTT.
+- Trạng thái provisioning thành công hoặc thất bại.
+- Danh sách mã lỗi BLE.
+- Topic và payload MQTT.
+- Trạng thái thật của 4 relay.
+- Trạng thái Timeout của 4 relay.
+- Trạng thái Schedule của 4 relay.
+- ACK thành công hoặc thất bại của mỗi lệnh.
+- Trạng thái thiết bị Online hoặc Offline.
+
+Firmware là nơi quyết định cuối cùng relay đang ON hay OFF.
+App chỉ hiển thị kết quả Firmware gửi về.
+
+
+4. FIRMWARE CẦN BACKEND CUNG CẤP GÌ?
+------------------------------------
+
+A. Thông tin riêng cho mỗi thiết bị
+
+[ ] deviceId riêng cho từng ESP.
+[ ] MQTT username riêng cho từng thiết bị.
+[ ] MQTT password riêng cho từng thiết bị.
+[ ] Mỗi thiết bị chỉ được truy cập topic của chính nó.
+[ ] Cách cấp deviceId và MQTT credential cho Firmware.
+[ ] Cách khóa thiết bị bị mất hoặc bị thay thế.
+
+Firmware hiện đang dùng deviceId cố định pump-controller-01.
+Cách này chỉ phù hợp để test một thiết bị.
+
+B. MQTT server
+
+[ ] Địa chỉ MQTT server.
+[ ] Cổng MQTT.
+[ ] Chứng chỉ CA để Firmware kiểm tra đúng server.
+[ ] Quy định topic cho từng thiết bị.
+[ ] Quy định lệnh nào được publish và subscribe.
+[ ] Quy định QoS.
+[ ] Quy định dữ liệu nào được retain.
+[ ] Quy định trạng thái Online/Offline.
+[ ] Quy định khi thiết bị mất mạng bất ngờ.
+[ ] Giới hạn kích thước MQTT message.
+[ ] Giới hạn số lần gửi/reconnect.
+
+Firmware hiện đang tắt kiểm tra chứng chỉ MQTT.
+Trước khi chạy sản phẩm thật, Backend phải cung cấp CA certificate.
+
+C. Quản lý thiết bị và người dùng
+
+[ ] Thiết bị thuộc tài khoản nào.
+[ ] Một thiết bị có thể có bao nhiêu người điều khiển.
+[ ] Quyền owner, member và viewer.
+[ ] Cách chuyển chủ thiết bị.
+[ ] Cách xóa thiết bị khỏi tài khoản.
+[ ] Cách thay ESP mới nhưng giữ lại cấu hình cũ.
+[ ] Cách đưa thiết bị về BLE provisioning lại.
+
+D. Khi thiết bị Offline
+
+[ ] Chốt lệnh gửi khi ESP Offline sẽ bị bỏ, giữ lại hay báo lỗi.
+[ ] Không giữ lệnh bật/tắt quá lâu để tránh ESP Online lại rồi chạy lệnh cũ.
+[ ] Không gửi Timeout trễ vì thời gian chạy sẽ sai.
+[ ] Chỉ gửi Schedule khi khoảng startAt/endAt vẫn còn hợp lệ.
+
+E. Thời gian
+
+[ ] Backend lưu thời gian theo UTC.
+[ ] Khi gửi cho Firmware, Schedule phải đúng dạng có +07:00.
+[ ] App, Backend và Firmware phải hiểu cùng một thời điểm.
+
+
+5. FIRMWARE SẼ CUNG CẤP GÌ CHO BACKEND?
+---------------------------------------
+
+- Trạng thái thiết bị online hoặc offline.
+- Trạng thái thật của 4 relay.
+- Timeout đang chạy của từng relay.
+- Thời điểm Timeout hết hạn.
+- Danh sách Schedule của từng relay.
+- Trạng thái hiện tại của từng Schedule.
+- ACK của mỗi lệnh.
+- Mã lỗi nếu lệnh thất bại.
+
+Các kết quả Firmware có thể trả về:
+
+- ok
+- invalid_channel
+- invalid_argument
+- time_unavailable
+- storage_error
+- relay_error
+- not_started
+
+Backend không được tự đoán trạng thái relay.
+Backend phải dùng trạng thái cuối cùng do Firmware gửi lên.
+
+
+6. QUY TẮC APP, BACKEND VÀ FIRMWARE PHẢI CÙNG HIỂU
+--------------------------------------------------
+
+A. Lệnh bật/tắt trực tiếp
+
+- Người dùng bấm ON/OFF.
+- Firmware hủy Timeout của đúng relay.
+- Firmware không xóa Schedule.
+- Firmware gửi lại trạng thái relay thật.
+
+B. Timeout
+
+- Timeout có hiệu lực ngay khi Firmware nhận lệnh.
+- Timeout có quyền cao hơn Schedule.
+- Timeout mới thay thế Timeout cũ của cùng relay.
+- Hết Timeout, relay chuyển sang trạng thái onExpire.
+
+C. Schedule
+
+- Relay bật tại startAt.
+- Relay tắt tại endAt.
+- Schedule cùng relay không được chồng thời gian.
+- Nếu Timeout đang chạy, Schedule phải chờ.
+- Nếu hết cả khoảng chạy mà vẫn bị chặn, Schedule thành missed.
+
+D. Offline thủ công
+
+- GPIO 6 HIGH.
+- Firmware dừng Wi-Fi, MQTT và BLE.
+- Timeout và Schedule tạm dừng.
+- Dữ liệu vẫn được giữ trong NVS.
+- Relay không tự đổi trạng thái khi vừa chuyển Offline.
+
+E. Quay lại Online
+
+- GPIO 6 LOW.
+- Firmware kết nối lại Wi-Fi/MQTT.
+- Firmware kiểm tra thời gian hiện tại.
+- Firmware quyết định Timeout/Schedule còn chạy hay đã hết hạn.
+
+
+7. NHỮNG CÂU HỎI APP VÀ BACKEND PHẢI TRẢ LỜI CHO FIRMWARE
+---------------------------------------------------------
+
+[ ] App điều khiển trực tiếp bằng MQTT hay gửi qua Backend?
+[ ] Ai tạo deviceId cho mỗi ESP?
+[ ] Firmware nhận MQTT username/password bằng cách nào?
+[ ] Backend cung cấp CA certificate nào?
+[ ] Lệnh gửi khi ESP Offline sẽ bị bỏ hay lưu lại?
+[ ] Có cần requestId để phân biệt từng lệnh không?
+[ ] Có cần Firmware gửi mode Online/Offline lên MQTT không?
+[ ] Người dùng đưa ESP về BLE provisioning lại bằng cách nào?
+[ ] BLE provisioning có cần mã PIN không?
+[ ] Backend có lưu Schedule hay chỉ Firmware lưu?
+[ ] Backend hay Firmware là nơi giữ Schedule chính thức?
+[ ] Có cần cập nhật Firmware từ xa không?
+[ ] Có cần lưu lịch sử bật/tắt relay không?
+[ ] Có cần lưu trạng thái relay qua mất điện không?
+[ ] Nút vật lý điều khiển 4 relay trong Offline sẽ hoạt động như thế nào?
+
+
+8. NHỮNG PHẦN FIRMWARE CHƯA HOÀN THÀNH
+--------------------------------------
+
+[ ] Chưa có nút vật lý riêng để điều khiển 4 relay trong Offline.
+[ ] Chưa có lệnh xóa Wi-Fi để provisioning lại.
+[ ] Chưa có deviceId riêng cho từng sản phẩm.
+[ ] Chưa bật kiểm tra chứng chỉ MQTT.
+[ ] Chưa có requestId trong command và ACK.
+[ ] Chưa gửi trạng thái GPIO Online/Offline lên MQTT.
+[ ] Chưa test đầy đủ Online/Offline trên phần cứng.
+[ ] Chưa test Timeout đi qua thời điểm hết hạn trong Offline.
+[ ] Chưa test Schedule đi qua startAt/endAt trong Offline.
+[ ] Chưa test đầy đủ Schedule startAt/endAt cho cả 4 relay.
+
+
+9. KHI NÀO CÓ THỂ COI LÀ ĐỒNG BỘ XONG?
+--------------------------------------
+
+[ ] App provisioning được thiết bị mới.
+[ ] ESP kết nối được Wi-Fi và MQTT.
+[ ] Backend nhận được trạng thái Online.
+[ ] App điều khiển được Relay 1 đến Relay 4.
+[ ] App nhận đúng trạng thái relay thật.
+[ ] Timeout hoạt động đúng trên cả 4 relay.
+[ ] Schedule startAt/endAt hoạt động đúng trên cả 4 relay.
+[ ] Timeout ưu tiên hơn Schedule.
+[ ] App kết nối lại và đọc lại được toàn bộ trạng thái.
+[ ] ESP reboot vẫn giữ Wi-Fi, Timeout và Schedule.
+[ ] GPIO 6 chuyển Online/Offline đúng.
+[ ] Offline không chạy Timeout/Schedule.
+[ ] Quay lại Online xử lý đúng dữ liệu đang lưu.
+[ ] Khi ESP mất mạng, Backend/App nhận được trạng thái Offline.
+[ ] Không có tài khoản MQTT quản trị nằm trong Mobile App.
